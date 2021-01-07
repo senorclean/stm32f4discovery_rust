@@ -1,0 +1,1 @@
+JLinkExe -if swd -device STM32F407VG -speed 4000 -autoconnect 1 -CommanderScript /home/andrew/stm32f4-rust/program.jlink

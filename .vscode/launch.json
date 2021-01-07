@@ -1,0 +1,23 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+
+    {
+      "name": "Cortex Debug",
+      "cwd": "${workspaceRoot}",
+      "executable": "${workspaceFolder}/target/thumbv7em-none-eabihf/debug/stm32f4-rust",
+      "device": "stm32f407vg",
+      "request": "launch",
+      "type": "cortex-debug",
+      "servertype": "jlink",
+      "interface": "swd",
+      "ipAddress": null,
+      "serialNumber": null,
+      "runToMain": true,
+      //"svdFile": "${workspaceRoot}/../util/nrf52.svd"
+    },
+  ]
+}

@@ -14,9 +14,39 @@
       "type": "cortex-debug",
       "servertype": "jlink",
       "interface": "swd",
-      "ipAddress": null,
-      "serialNumber": null,
       "runToMain": true,
+      "postLaunchCommands": [
+        "monitor semihosting enable",
+        "monitor semihosting ioclient 3"
+      ],
+      "swoConfig": {
+        "source": "probe",
+        "enabled": true,
+        "swoFrequency": 2000000,
+        "cpuFrequency": 168000000,
+        "decoders": [
+          {
+            "port": 0,
+            "label": "Output",
+            "type": "console"
+          }
+        ]
+      }
+      //"svdFile": "${workspaceRoot}/../util/nrf52.svd"
+    },
+    {
+      "name": "OpenOCD",
+      "cwd": "${workspaceRoot}",
+      "executable": "${workspaceFolder}/target/thumbv7em-none-eabihf/debug/stm32f4-rust",
+      "request": "launch",
+      "type": "cortex-debug",
+      "servertype": "openocd",
+      "runToMain": true,
+      "configFiles": ["stm32f4discovery.cfg"],
+      "preLaunchCommands": [
+        "monitor arm semihosting enable"
+      ],
+      "postLaunchCommands": ["continue"]
       //"svdFile": "${workspaceRoot}/../util/nrf52.svd"
     },
   ]

@@ -1,0 +1,6 @@
+#!/bin/bash
+
+cargo build
+cargo objcopy -q -- -O ihex stm32f4-rust.hex
+cp target/thumbv7em-none-eabihf/debug/stm32f4-rust .
+cargo size -q -- --format=berkeley

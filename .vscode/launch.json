@@ -8,7 +8,7 @@
     {
       "name": "Cortex Debug",
       "cwd": "${workspaceRoot}",
-      "executable": "${workspaceFolder}/target/thumbv7em-none-eabihf/debug/stm32f4-rust",
+      "executable": "${workspaceFolder}/stm32f4-rust",
       "device": "stm32f407vg",
       "request": "launch",
       "type": "cortex-debug",

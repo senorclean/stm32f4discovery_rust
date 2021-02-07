@@ -1,4 +1,4 @@
-loadfile target/thumbv7em-none-eabihf/debug/stm32f4-rust.hex, 0x08000000
+loadfile stm32f4-rust.hex, 0x08000000
 r
 g
 exit

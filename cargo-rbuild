@@ -1,0 +1,6 @@
+#!/bin/bash
+
+cargo build --release
+cargo objcopy -q --release -- -O ihex stm32f4-rust.hex
+cp target/thumbv7em-none-eabihf/release/stm32f4-rust .
+cargo size -q --release -- --format=berkeley

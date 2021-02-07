@@ -1,4 +1,0 @@
-#!/bin/bash
-
-cargo build
-cargo objcopy --bin stm32f4-rust -- -O ihex target/thumbv7em-none-eabihf/debug/stm32f4-rust.hex

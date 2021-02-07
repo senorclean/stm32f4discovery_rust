@@ -22,3 +22,10 @@ cortex-m-rtic = "0.5"
 
 [dev-dependencies]
 # panic-halt = "0.2"
+
+[profile.release]
+# "s" or "z"
+codegen-units = 1
+debug = true
+debug-assertions = true
+opt-level = "s"

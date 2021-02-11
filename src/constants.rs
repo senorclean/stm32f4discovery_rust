@@ -1,0 +1,1 @@
+pub const CPU_FREQ: u32 = 168_000_000;

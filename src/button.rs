@@ -1,5 +1,4 @@
 use rtic_core::prelude::*;
-use cortex_m_semihosting::hprintln;
 use stm32f4xx_hal::{
   prelude::*,
   gpio::ExtiPin,
@@ -8,17 +7,23 @@ use stm32f4xx_hal::{
 use rtic::cyccnt::{Instant, U32Ext};
 
 use crate::util;
+use crate::util::debugger;
 use crate::heartbeat;
-use crate::app::button_mb_app;
-use crate::app::button_app;
-use crate::app::heartbeat_mb_app;
+use crate::app;
+use crate::app::{
+  button_mb_app,
+  button_app,
+  MessagePacket,
+  Task,
+};
 
 pub const SAMPLE_SIZE: usize = 10;
 const SAMPLE_THRESHOLD: usize = 5;
 
-
+#[derive(Debug)]
 pub enum Message {
-  ButtonPressed
+  ButtonPressed,
+  ButtonNotPressed
 }
 
 pub struct Data<T> {
@@ -40,25 +45,28 @@ enum State {
 }
 
 
-pub fn button_mb(cx: button_mb_app::Context, msg: Message) {
+pub fn button_mb(cx: button_mb_app::Context, msg: MessagePacket) {
 
-  let button_data = cx.resources.button;
-  let debugger = cx.resources.debugger;
+  let mut button_data = cx.resources.button;
 
-  (button_data, debugger).lock(|button_data, debugger| {
+  (button_data).lock(|button_data| {
 
-    let action;
-    (button_data.state, action) = button_data.state.next(&msg);
+    match msg.msg { 
+      app::Message::Button(x) => {
+        
+        let action;
+        (button_data.state, action) = button_data.state.next(&x);
 
-    match action {
-      Action::Schedule => {
-        match button_app::schedule(Instant::now()) {
-          Ok(_) => (),
-          Err(_) => {
-            if *debugger {
-              hprintln!("Button is already scheduled").unwrap();
+        match action {
+          Action::Schedule => {
+            match button_app::schedule(Instant::now()) {
+              Ok(_) => (),
+              Err(_) => {
+                debugger::print("Button is already scheduled", None);
+              }
             }
           }
+          _ => ()
         }
       }
       _ => ()
@@ -89,10 +97,11 @@ pub fn button(cx: button_app::Context) {
         // }
 
         if sample_cnt > SAMPLE_THRESHOLD {
-          heartbeat_mb_app::spawn(heartbeat::Message::Toggle).unwrap();
+          util::send_message(Task::Spi1, &Task::Heartbeat, app::Message::Heartbeat(heartbeat::Message::Toggle));
         }
 
         button_data.sample_cnt = 0;
+        (button_data.state, ..) = button_data.state.next(&Message::ButtonNotPressed);
         button_data.button.enable_interrupt(exti);
       }
     });
@@ -104,6 +113,9 @@ impl State {
     match (self, msg) {
       (State::NotPressed, Message::ButtonPressed) => {
         (State::Pressed, Action::Schedule)
+      }
+      (State::Pressed, Message::ButtonNotPressed) => {
+        (State::NotPressed, Action::DoNothing)
       }
       (s, _m) => {
         (s, Action::DoNothing)

@@ -3,16 +3,19 @@ use stm32f4xx_hal::{
   pwm::PwmChannels,
   pwm::C2,
   stm32::TIM4,
-  // delay::Delay,
 };
 
 use rtic::cyccnt::{Instant, U32Ext};
 use rtic_core::prelude::*;
-use cortex_m_semihosting::hprintln;
 
 use crate::util;
-use crate::app::heartbeat_mb_app;
-use crate::app::heartbeat_app;
+use crate::util::debugger;
+use crate::app;
+use crate::app::{
+  heartbeat_mb_app,
+  heartbeat_app,
+  MessagePacket,
+};
 
 
 pub struct Data<T, U> {
@@ -39,25 +42,28 @@ enum Action {
 }
 
 
-pub fn heartbeat_mb(cx: heartbeat_mb_app::Context, msg: Message) {
+pub fn heartbeat_mb(cx: heartbeat_mb_app::Context, msg: MessagePacket) {
 
-  let hb_data = cx.resources.heartbeat;
-  let debugger = cx.resources.debugger;
+  let mut hb_data = cx.resources.heartbeat;
 
-  (hb_data, debugger).lock(|hb_data, debugger| {
+  (hb_data).lock(|hb_data| {
 
-    let action;
-    (hb_data.state, action) = hb_data.state.next(&msg);
+    match msg.msg { 
+      app::Message::Heartbeat(x) => {
+        
+        let action;
+        (hb_data.state, action) = hb_data.state.next(&x);
 
-    match action {
-      Action::Schedule => {
-        match heartbeat_app::schedule(Instant::now(), true) {
-          Ok(_) => (),
-          Err(_) => {
-            if *debugger {
-              hprintln!("Heartbeat is already scheduled").unwrap();
+        match action {
+          Action::Schedule => {
+            match heartbeat_app::schedule(Instant::now(), true) {
+              Ok(_) => (),
+              Err(_) => {
+                debugger::print("Heartbeat is already scheduled", None);
+              }
             }
           }
+          _ => ()
         }
       }
       _ => ()

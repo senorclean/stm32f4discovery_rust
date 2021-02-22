@@ -9,6 +9,8 @@ mod heartbeat;
 mod util;
 mod constants;
 mod button;
+mod spi_drv;
+mod lis3dsh;
 
 #[rtic::app(
   device = stm32f4xx_hal::stm32,
@@ -23,40 +25,45 @@ mod app {
     prelude::*,
     stm32,
     pwm,
+    spi,
     gpio::gpioa,
+    gpio::gpioe,
     // gpio::gpiod,
-    // gpio::Output,
+    gpio::gpioa::PA5,
+    gpio::gpioa::PA6,
+    gpio::gpioa::PA7,
+    gpio::AF5,
+    gpio::Output,
     gpio::Input,
+    gpio::Alternate,
     gpio::Floating,
-    // gpio::PushPull,
     gpio::Edge,
+    gpio::PushPull,
     gpio::ExtiPin,
     pwm::C2,
     stm32::TIM4,
+    stm32::SPI1,
     // delay::Delay,
   };
   use rtic_core::prelude::*;
-  use rtic::cyccnt::{Instant, U32Ext};
 
-  use cortex_m_semihosting::hprintln;
   use panic_semihosting as _;
 
   #[resources]
-  struct Resources<T, U> {
+  struct Resources<'a> {
     // led: gpiod::PD12<Output<PushPull>>,
     heartbeat: heartbeat::Data<TIM4, C2>,
     button: button::Data<gpioa::PA0<Input<Floating>>>,
+    spi: spi_drv::spi1::Data<spi::Spi<SPI1, (PA5<Alternate<AF5>>, PA6<Alternate<AF5>>, PA7<Alternate<AF5>>)>, gpioe::PE3<Output<PushPull>>>,
+    lis: lis3dsh::Lis3dsh,
     exti: stm32::EXTI,
-    debugger: bool,
   }
 
   #[init()]
   fn init(cx: init::Context) -> init::LateResources {
 
-    let debugger = util::is_debugger_connected();
-    if debugger {
-      hprintln!("init").unwrap();
-    };
+    util::debugger::init();
+    util::debugger::print("Initializing", None);
 
     // device specific peripherals
     let device: stm32::Peripherals = cx.device;
@@ -68,6 +75,7 @@ mod app {
 
     let gpioa = device.GPIOA.split();
     let gpiod = device.GPIOD.split();
+    let gpioe = device.GPIOE.split();
     // let led = gpiod.pd12.into_push_pull_output();
 
     // configure button as interrupt source
@@ -81,29 +89,68 @@ mod app {
     let mut heartbeat_led= pwm::tim4(device.TIM4, pwm_channel, clocks, 20u32.khz());
     heartbeat_led.set_duty(0);
 
-    // start tasks
-    heartbeat_mb_app::spawn(heartbeat::Message::TurnOn).unwrap();
+    // setup SPI1 for accelerometer
+    let spi_clk = gpioa.pa5.into_alternate_af5();
+    let spi_miso = gpioa.pa6.into_alternate_af5();
+    let spi_mosi = gpioa.pa7.into_alternate_af5();
+    let mut spi_cs = gpioe.pe3.into_push_pull_output();
+
+    let mode = spi::Mode {
+      polarity: spi::Polarity::IdleLow,
+      phase: spi::Phase::CaptureOnFirstTransition
+    };
+
+    spi_cs.set_high().unwrap();
+
+    let mut spi1 = spi::Spi::spi1(device.SPI1,
+      (spi_clk, spi_miso, spi_mosi),
+      mode,
+      1u32.mhz().into(),
+      clocks);
+
+    
+    // enable interrupts that will always be on
+    spi1.listen(spi::Event::Error);
+    // spi.listen(spi::Event::Rxne);
+    // spi.listen(spi::Event::Txe);
+
+    let spi = spi_drv::spi1::Data::new(spi1, spi_cs);
+
+    let lis = lis3dsh::Lis3dsh::new();
 
     // initialize resource data
-    let button= button::Data::new(button);
+    let button = button::Data::new(button);
     let heartbeat = heartbeat::Data::new(heartbeat_led);
+
+    // start tasks
+    heartbeat_mb_app::spawn( MessagePacket {
+      source: Task::Init,
+      msg: Message::Heartbeat(heartbeat::Message::TurnOn)
+    }).unwrap();
+
+    lis_mb_app::spawn(MessagePacket {
+      source: Task::Init,
+      msg: Message::Lis3dsh(lis3dsh::Message::Read(spi_drv::Read { reg: lis3dsh::ReadRegister::ID, len: 1 }))
+    }).unwrap();
 
     init::LateResources {
       // led,
       heartbeat,
       button,
+      lis,
       exti,
-      debugger
+      spi
     }
   }
 
   #[task(priority = 3, binds = EXTI0, resources = [button, exti])]
   fn exti0(cx: exti0::Context) {
-    match button_app::schedule(Instant::now() + util::convert_us_to_cycles(10_000).cycles()) {
-      Ok(_) => (),
-      // function is likely already scheduled
-      Err(_) => ()
-    }
+    let msg = MessagePacket {
+      source: Task::Interrupt,
+      msg: Message::Button(button::Message::ButtonPressed)
+    };
+
+    button_mb_app::spawn(msg).unwrap();
 
     let exti = cx.resources.exti;
     let button = cx.resources.button;
@@ -114,18 +161,62 @@ mod app {
     });
   }
 
-  #[task(priority = 2, resources = [button, debugger])]
-  fn button_mb_app(cx: button_mb_app::Context, msg: button::Message) {
+  #[task(priority = 3, binds = SPI1, resources = [spi])]
+  fn spi1(mut cx: spi1::Context) {
+    let mut msg = MessagePacket{
+      source: Task::Interrupt,
+      msg: Message::Spi(spi_drv::Message::Ignore)
+    };
+
+    (cx.resources.spi).lock(|spi| {
+      if spi.spi.is_rxne() {
+        util::debugger::print("RX not empty event", None);
+        msg.msg = Message::Spi(spi_drv::Message::RxEvent);
+        spi.spi.unlisten(spi::Event::Rxne);
+
+      } else if spi.spi.is_txe() {
+        util::debugger::print("TX empty event", None);
+        msg.msg = Message::Spi(spi_drv::Message::TxEvent);
+      } else {
+        util::debugger::print("Unknown event received", None);
+      }
+    });
+
+    spi1_mb_app::spawn(msg).unwrap();
+  }
+
+  #[task(priority = 2, resources = [lis])]
+  fn lis_mb_app(cx: lis_mb_app::Context, msg: MessagePacket) {
+    lis3dsh::lis3dsh_mb(cx, msg);
+  }
+
+  #[task(priority = 2, resources = [spi])]
+  fn lis_app(cx: lis_app::Context, msg: lis3dsh::Action) {
+    lis3dsh::lis3dsh(cx, msg);
+  }
+
+  #[task(priority = 2, resources = [spi])]
+  fn spi1_mb_app(cx: spi1_mb_app::Context, msg: MessagePacket) {
+    spi_drv::spi1::spi1_mb(cx, msg);
+  }
+
+  #[task(priority = 2, resources = [spi])]
+  fn spi1_app(cx: spi1_app::Context, msg: spi_drv::Action) {
+    spi_drv::spi1::spi1(cx, msg);
+  }
+
+  #[task(priority = 2, resources = [button])]
+  fn button_mb_app(cx: button_mb_app::Context, msg: MessagePacket) {
     button::button_mb(cx, msg);
   }
 
-  #[task(resources = [button, exti, debugger])]
+  #[task(resources = [button, exti])]
   fn button_app(cx: button_app::Context) {
     button::button(cx);
   }
 
-  #[task(priority = 2, resources = [heartbeat, debugger])]
-  fn heartbeat_mb_app(cx: heartbeat_mb_app::Context, msg: heartbeat::Message) {
+  #[task(priority = 2, resources = [heartbeat])]
+  fn heartbeat_mb_app(cx: heartbeat_mb_app::Context, msg: MessagePacket) {
     heartbeat::heartbeat_mb(cx, msg);
   }
 
@@ -154,5 +245,43 @@ mod app {
 
   //   cx.schedule.blink(cx.scheduled + CPU_FREQ.cycles()).unwrap();
   // }
+
+  #[derive(Debug)]
+  pub enum Task {
+    Init,
+    Interrupt,
+    Heartbeat,
+    Button,
+    Spi1,
+    Lis3dsh
+  }
+
+  #[derive(Debug)]
+  pub enum Message {
+    Lis3dsh(lis3dsh::Message),
+    Heartbeat(heartbeat::Message),
+    Button(button::Message),
+    Spi(spi_drv::Message),
+  }
+
+  #[derive(Debug)]
+  pub struct MessagePacket {
+    pub source: Task,
+    pub msg: Message
+  }
 }
+
+impl From<app::Task> for u32 {
+  fn from(msg: app::Task) -> Self {
+    match msg {
+      app::Task::Init => 0,
+      app::Task::Interrupt => 1,
+      app::Task::Heartbeat => 2,
+      app::Task::Button => 3,
+      app::Task::Spi1 => 4,
+      app::Task::Lis3dsh => 5
+    }
+  }
+}
+
 

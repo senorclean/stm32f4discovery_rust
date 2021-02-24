@@ -17,7 +17,6 @@ use crate::app::{
   MessagePacket,
 };
 
-
 pub struct Data<T, U> {
   led: PwmChannels<T, U>,
   state: State,

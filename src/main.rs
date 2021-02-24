@@ -5,14 +5,13 @@
 
 #[allow(unused_extern_crates)]
 
-use rtic::cyccnt::{Instant, U32Ext};
-
 mod heartbeat;
 mod util;
 mod constants;
 mod button;
 mod spi_drv;
 mod lis3dsh;
+// mod i2c_drv;
 
 #[rtic::app(
   device = stm32f4xx_hal::stm32,
@@ -45,7 +44,6 @@ mod app {
     pwm::C2,
     stm32::TIM4,
     stm32::SPI1,
-    // delay::Delay,
   };
   use rtic_core::prelude::*;
 
@@ -53,7 +51,6 @@ mod app {
 
   #[resources]
   struct Resources {
-    // led: gpiod::PD12<Output<PushPull>>,
     heartbeat: heartbeat::Data<TIM4, C2>,
     button: button::Data<gpioa::PA0<Input<Floating>>>,
     spi: spi_drv::spi1::Data<spi::Spi<SPI1, (PA5<Alternate<AF5>>, PA6<Alternate<AF5>>, PA7<Alternate<AF5>>)>, gpioe::PE3<Output<PushPull>>>,
@@ -78,7 +75,6 @@ mod app {
     let gpioa = device.GPIOA.split();
     let gpiod = device.GPIOD.split();
     let gpioe = device.GPIOE.split();
-    // let led = gpiod.pd12.into_push_pull_output();
 
     // configure button as interrupt source
     let mut button = gpioa.pa0.into_floating_input();
@@ -96,33 +92,25 @@ mod app {
     let spi_miso = gpioa.pa6.into_alternate_af5();
     let spi_mosi = gpioa.pa7.into_alternate_af5();
     let mut spi_cs = gpioe.pe3.into_push_pull_output();
-
     let mode = spi::Mode {
       polarity: spi::Polarity::IdleLow,
       phase: spi::Phase::CaptureOnFirstTransition
     };
-
-    spi_cs.set_high().unwrap();
 
     let mut spi1 = spi::Spi::spi1(device.SPI1,
       (spi_clk, spi_miso, spi_mosi),
       mode,
       1u32.mhz().into(),
       clocks);
-
     
-    // enable interrupts that will always be on
     spi1.listen(spi::Event::Error);
-    // spi.listen(spi::Event::Rxne);
-    // spi.listen(spi::Event::Txe);
-
-    let spi = spi_drv::spi1::Data::new(spi1, spi_cs);
-
-    let lis = lis3dsh::Lis3dsh::new();
+    spi_cs.set_high().unwrap();
 
     // initialize resource data
     let button = button::Data::new(button);
     let heartbeat = heartbeat::Data::new(heartbeat_led);
+    let lis = lis3dsh::Lis3dsh::new();
+    let spi = spi_drv::spi1::Data::new(spi1, spi_cs);
 
     // start tasks
     let msg = Message::Heartbeat(heartbeat::Message::TurnOn);
@@ -135,23 +123,18 @@ mod app {
     util::schedule_message(Task::Init, &Task::Lis3dsh, msg, 1_000_000).unwrap();
 
     init::LateResources {
-      // led,
       heartbeat,
       button,
       lis,
       exti,
-      spi
+      spi,
     }
   }
 
   #[task(priority = 3, binds = EXTI0, resources = [button, exti])]
   fn exti0(cx: exti0::Context) {
-    let msg = MessagePacket {
-      source: Task::Interrupt,
-      msg: Message::Button(button::Message::ButtonPressed)
-    };
 
-    button_mb_app::spawn(msg).unwrap();
+    util::send_message(Task::Interrupt, &Task::Button, Message::Button(button::Message::ButtonPressed)).unwrap();
 
     let exti = cx.resources.exti;
     let button = cx.resources.button;
@@ -164,25 +147,22 @@ mod app {
 
   #[task(priority = 3, binds = SPI1, resources = [spi])]
   fn spi1(mut cx: spi1::Context) {
-    let mut msg = MessagePacket{
-      source: Task::Interrupt,
-      msg: Message::Spi(spi_drv::Message::Ignore)
-    };
+    let mut msg = Message::Spi(spi_drv::Message::Ignore);
 
     (cx.resources.spi).lock(|spi| {
       if spi.spi.is_rxne() {
         // util::debugger::print(format_args!("RX not empty event"));
-        msg.msg = Message::Spi(spi_drv::Message::RxEvent);
+        msg = Message::Spi(spi_drv::Message::RxEvent);
         spi.spi.unlisten(spi::Event::Rxne);
       } else if spi.spi.is_txe() {
         // util::debugger::print(format_args!("TX empty event"));
-        msg.msg = Message::Spi(spi_drv::Message::TxEvent);
+        msg = Message::Spi(spi_drv::Message::TxEvent);
       } else {
         // util::debugger::print(format_args!("Unknown event received"));
       }
     });
 
-    spi1_mb_app::spawn(msg).unwrap();
+    util::send_message(Task::Interrupt, &Task::Spi1, msg).unwrap();
   }
 
   #[task(priority = 2, resources = [lis, spi], capacity = 4)]
@@ -260,18 +240,3 @@ mod app {
     pub msg: Message
   }
 }
-
-impl From<app::Task> for i32 {
-  fn from(msg: app::Task) -> Self {
-    match msg {
-      app::Task::Init => 0,
-      app::Task::Interrupt => 1,
-      app::Task::Heartbeat => 2,
-      app::Task::Button => 3,
-      app::Task::Spi1 => 4,
-      app::Task::Lis3dsh => 5
-    }
-  }
-}
-
-

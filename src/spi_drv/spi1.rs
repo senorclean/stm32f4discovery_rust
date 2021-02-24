@@ -53,7 +53,6 @@ pub fn spi1_mb(mut cx: spi1_mb_app::Context, msg: MessagePacket) {
 
             spi.spi.listen(spi::Event::Rxne);
             spi.cs_pin.set_low().unwrap();
-            // spi.spi.send(spi.tx_buffer[0]).unwrap();
             spi.tx_buffer[0] = r.reg;
             spi.transfer_len = r.len;
             spi.spi.send(spi.tx_buffer[0]).unwrap();
@@ -84,7 +83,7 @@ pub fn spi1_mb(mut cx: spi1_mb_app::Context, msg: MessagePacket) {
             }
 
             if spi.bytes_transferred == spi.transfer_len {
-              (spi.state, ..) = spi.state.next(&Message::EndTransaction);
+              (spi.state, ..) = spi.state.next(&Message::FinishTransaction);
 
               spi.cs_pin.set_high().unwrap();
 
@@ -107,7 +106,7 @@ pub fn spi1_mb(mut cx: spi1_mb_app::Context, msg: MessagePacket) {
 
             if spi.bytes_transferred == spi.transfer_len {
 
-              (spi.state, ..) = spi.state.next(&Message::EndTransaction);
+              (spi.state, ..) = spi.state.next(&Message::FinishTransaction);
               spi.cs_pin.set_high().unwrap();
 
               // spawn message to origin
@@ -129,6 +128,11 @@ pub fn spi1_mb(mut cx: spi1_mb_app::Context, msg: MessagePacket) {
               }
               _ => ()
             }
+          }
+          Action::Reset => {
+            // reset variables
+            spi.transfer_len = 0;
+            spi.bytes_transferred = 0;
           }
           Action::DoNothing => (),
         }
@@ -155,10 +159,10 @@ impl State {
       (State::Writing, Message::RxEvent) => {
         (State::Writing, Action::ContinueWrite)
       }
-      (State::Reading, Message::EndTransaction) => {
+      (State::Reading, Message::FinishTransaction) => {
         (State::WaitingForConfirmation, Action::DoNothing)
       }
-      (State::Writing, Message::EndTransaction) => {
+      (State::Writing, Message::FinishTransaction) => {
         (State::WaitingForConfirmation, Action::DoNothing)
       }
       (State::WaitingForConfirmation, Message::ReadConfirmation) => {
@@ -166,6 +170,9 @@ impl State {
       }
       (State::WaitingForConfirmation, Message::WriteConfirmation) => {
         (State::Idling, Action::DoNothing)
+      }
+      (_s, Message::CancelTransaction) => {
+        (State::Idling, Action::Reset)
       }
       (s, _m) => {
         (s, Action::Reject)

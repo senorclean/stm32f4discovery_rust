@@ -91,10 +91,6 @@ pub fn button(cx: button_app::Context) {
           .filter(|&x| *x == true)
           .count();
 
-        // if *cx.resources.debugger {
-        //   hprintln!("Count: {:?}", cnt).unwrap();
-        // }
-
         if sample_cnt > SAMPLE_THRESHOLD {
           util::send_message(Task::Spi1, &Task::Heartbeat, app::Message::Heartbeat(heartbeat::Message::Toggle)).unwrap();
         }

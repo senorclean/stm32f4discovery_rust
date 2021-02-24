@@ -20,8 +20,11 @@ pub mod debugger {
   static mut ENABLED: bool = false;
 
   pub fn init() {
+    // check to see if debugger is connected
     let addr = 0xE000EDF0usize;
     let r = addr as *const u32;
+    // if it is connected, enable the print function
+    // this is necessary because otherwise the program hangs when it tries to print and a debugger is not connected
     if unsafe { *r & 1 } == 1 {
       unsafe { ENABLED = true; }
     }

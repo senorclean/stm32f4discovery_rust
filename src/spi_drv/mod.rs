@@ -24,7 +24,8 @@ pub enum Message {
   TxEvent,
   RxEvent,
   Error,
-  EndTransaction,
+  FinishTransaction,
+  CancelTransaction,
   ReadConfirmation,
   WriteConfirmation
 }
@@ -32,6 +33,7 @@ pub enum Message {
 #[derive(Debug)]
 pub enum Action {
   DoNothing,
+  Reset,
   Reject,
   StartRead(Read),
   StartWrite(Write),

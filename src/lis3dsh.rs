@@ -1,5 +1,4 @@
 use rtic_core::prelude::*;
-use rtic::cyccnt::{Instant, U32Ext};
 
 const TIMEOUT: u32 = 3_000_000;
 const READ_MASK: u8 = 0x80;
@@ -24,11 +23,11 @@ use crate::app::{
 
 #[derive(Debug, Clone, Copy)]
 pub enum Scale {
-  Two_G,
-  Four_G,
-  Six_G,
-  Eight_G,
-  Sixteen_G,
+  TwoG,
+  FourG,
+  SixG,
+  EightG,
+  SixteenG,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -53,6 +52,7 @@ pub enum Message {
 #[derive(Debug)]
 pub struct ReadRegister;
 
+#[allow(dead_code)]
 impl ReadRegister {
   pub const ID: u8 = (READ_MASK | 0x0F);
   pub const X_AXIS: u8 = (READ_MASK | 0x28);
@@ -63,6 +63,7 @@ impl ReadRegister {
 #[derive(Debug)]
 pub struct WriteRegister;
 
+#[allow(dead_code)]
 impl WriteRegister {
   pub const CTRL_REG4: u8 = (WRITE_MASK | 0x20);
   pub const CTRL_REG5: u8 = (WRITE_MASK | 0x24);
@@ -91,7 +92,7 @@ pub enum Action {
   StartRead(spi_drv::Read),
   StartWrite(spi_drv::Write),
   HandleData,
-  LogError,
+  HandleError,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -100,7 +101,7 @@ enum State {
   Busy,
 }
 
-pub fn lis3dsh_mb(mut cx: lis_mb_app::Context, packet: MessagePacket) {
+pub fn lis3dsh_mb(cx: lis_mb_app::Context, packet: MessagePacket) {
   (cx.resources.lis, cx.resources.spi).lock(|lis, spi| {
 
     match packet.msg { 
@@ -139,7 +140,7 @@ pub fn lis3dsh_mb(mut cx: lis_mb_app::Context, packet: MessagePacket) {
 
                 debugger::print(format_args!("Received value: {}", res));
 
-                // respond to origin
+                // TODO: respond to origin
               },
               Message::ReadAxes => {
                 let x_axis = ((u16::from(spi.rx_buffer[1]) << 8) | u16::from(spi.rx_buffer[0])) as i16;
@@ -158,7 +159,7 @@ pub fn lis3dsh_mb(mut cx: lis_mb_app::Context, packet: MessagePacket) {
                 debugger::print(format_args!("Y-axis: {:?}", y_axis));
                 debugger::print(format_args!("Z-axis: {:?}", z_axis));
 
-                // respond to origin
+                // TODO: respond to origin
               }
               Message::ChangeScale(x) => {
                 lis.config.scale = x;
@@ -177,8 +178,19 @@ pub fn lis3dsh_mb(mut cx: lis_mb_app::Context, packet: MessagePacket) {
               _ => ()
             }
           }
-          Action::LogError => {
+          Action::HandleError => {
+            // log error message
             debugger::print(format_args!("[Error: {:?}] Failed to perform task: {:?}", msg, lis.current_process));
+
+            // reset the module's status to allow future communication
+            match msg {
+              Message::TimeoutCheck => {
+                // reset spi module
+                let msg = app::Message::Spi(spi_drv::Message::CancelTransaction);
+                util::send_message(Task::Lis3dsh, &Task::Spi1, msg).unwrap();
+              }
+              _ => ()
+            }
           }
           Action::DoNothing => (),
         }
@@ -190,13 +202,14 @@ pub fn lis3dsh_mb(mut cx: lis_mb_app::Context, packet: MessagePacket) {
 
 fn calculate_1g(input: i16, scale: &Scale) -> f32 {
   let scale: u8 = match scale {
-    Scale::Two_G => 2,
-    Scale::Four_G => 4,
-    Scale::Six_G => 6,
-    Scale::Eight_G => 8,
-    Scale::Sixteen_G => 16,
+    Scale::TwoG => 2,
+    Scale::FourG => 4,
+    Scale::SixG => 6,
+    Scale::EightG => 8,
+    Scale::SixteenG => 16,
   };
 
+  // division is by 2^15 because value is signed 16-bit
   (f32::from(input) * f32::from(scale)) / 32768.0
 }
 
@@ -214,21 +227,20 @@ impl State {
       (State::Idling, Message::ChangeScale(scale)) => {
         let scale = u8::from(*scale);
         let mut data = [0; 10];
-        data[0] = scale << 3;
+        data[0] = scale << SCALE_BYTE_POS;
 
-        (State::Busy, Action::StartWrite(spi_drv::Write { reg: WriteRegister::CTRL_REG5, len: 2, data}))
+        (State::Busy, Action::StartWrite(spi_drv::Write { reg: WriteRegister::CTRL_REG5, len: 2, data }))
       }
       (State::Idling, Message::ChangeDataRate(rate)) => {
         let rate = u8::from(*rate);
         let mut data = [0; 10];
-        // data[0] = (rate << 4) | 0x0F;
         data[0] = u8::from(rate) |
           lis.config.bdu |
           lis.config.z_en |
           lis.config.y_en |
           lis.config.x_en;
 
-        (State::Busy, Action::StartWrite(spi_drv::Write { reg: WriteRegister::CTRL_REG4, len: 2, data}))
+        (State::Busy, Action::StartWrite(spi_drv::Write { reg: WriteRegister::CTRL_REG4, len: 2, data }))
       }
       (State::Idling, Message::ChangeBDU(bdu)) => {
         let bdu = u8::from(*bdu);
@@ -240,7 +252,7 @@ impl State {
           lis.config.y_en |
           lis.config.x_en;
 
-        (State::Busy, Action::StartWrite(spi_drv::Write { reg: WriteRegister::CTRL_REG4, len: 2, data}))
+        (State::Busy, Action::StartWrite(spi_drv::Write { reg: WriteRegister::CTRL_REG4, len: 2, data }))
       }
       (State::Busy, Message::ReadComplete) => {
         (State::Idling, Action::HandleData)
@@ -249,10 +261,10 @@ impl State {
         (State::Idling, Action::HandleData)
       }
       (State::Busy, Message::TimeoutCheck) => {
-        (State::Idling, Action::LogError)
+        (State::Idling, Action::HandleError)
       }
       (s, Message::CommandRejected) => {
-        (s, Action::LogError)
+        (s, Action::HandleError)
       }
       (s, _m) => {
         (s, Action::DoNothing)
@@ -275,11 +287,11 @@ impl Lis3dsh {
 impl From<Scale> for u8 {
   fn from(x: Scale) -> Self {
     match x {
-      Scale::Two_G => (0 << SCALE_BYTE_POS),
-      Scale::Four_G => (1 << SCALE_BYTE_POS),
-      Scale::Six_G => (2 << SCALE_BYTE_POS),
-      Scale::Eight_G => (3 << SCALE_BYTE_POS),
-      Scale::Sixteen_G => (4 << SCALE_BYTE_POS),
+      Scale::TwoG => (0 << SCALE_BYTE_POS),
+      Scale::FourG => (1 << SCALE_BYTE_POS),
+      Scale::SixG => (2 << SCALE_BYTE_POS),
+      Scale::EightG => (3 << SCALE_BYTE_POS),
+      Scale::SixteenG => (4 << SCALE_BYTE_POS),
     }
   }
 }
@@ -300,7 +312,7 @@ impl Default for Configuration {
       y_en: (1 << Y_EN_BYTE_POS),
       z_en: (1 << Z_EN_BYTE_POS),
       bdu: (0 << BDU_BYTE_POS),
-      scale: Scale::Two_G,
+      scale: Scale::TwoG,
       data_rate: DataRate::Zero
     }
   }

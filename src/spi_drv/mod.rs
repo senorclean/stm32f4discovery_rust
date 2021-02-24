@@ -1,6 +1,7 @@
 pub mod spi1;
 
-pub const BUFFER_SIZE: usize = 255;
+pub const RX_BUFFER_SIZE: usize = 255;
+pub const TX_BUFFER_SIZE: usize = 10;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Read {
@@ -12,7 +13,7 @@ pub struct Read {
 pub struct Write {
   pub reg: u8,
   pub len: u8,
-  pub data: [u8; BUFFER_SIZE]
+  pub data: [u8; TX_BUFFER_SIZE]
 }
 
 #[derive(Debug)]
@@ -24,7 +25,8 @@ pub enum Message {
   RxEvent,
   Error,
   EndTransaction,
-  ReadConfirmation
+  ReadConfirmation,
+  WriteConfirmation
 }
 
 #[derive(Debug)]
@@ -35,5 +37,4 @@ pub enum Action {
   StartWrite(Write),
   ContinueRead,
   ContinueWrite,
-  ResetTransaction
 }

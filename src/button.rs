@@ -2,7 +2,6 @@ use rtic_core::prelude::*;
 use stm32f4xx_hal::{
   prelude::*,
   gpio::ExtiPin,
-  // delay::Delay,
 };
 use rtic::cyccnt::{Instant, U32Ext};
 
@@ -62,7 +61,7 @@ pub fn button_mb(cx: button_mb_app::Context, msg: MessagePacket) {
             match button_app::schedule(Instant::now()) {
               Ok(_) => (),
               Err(_) => {
-                debugger::print("Button is already scheduled", None);
+                debugger::print(format_args!("Button is already scheduled"));
               }
             }
           }
@@ -97,7 +96,7 @@ pub fn button(cx: button_app::Context) {
         // }
 
         if sample_cnt > SAMPLE_THRESHOLD {
-          util::send_message(Task::Spi1, &Task::Heartbeat, app::Message::Heartbeat(heartbeat::Message::Toggle));
+          util::send_message(Task::Spi1, &Task::Heartbeat, app::Message::Heartbeat(heartbeat::Message::Toggle)).unwrap();
         }
 
         button_data.sample_cnt = 0;

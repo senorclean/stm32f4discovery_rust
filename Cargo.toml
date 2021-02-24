@@ -16,7 +16,8 @@ rtic-core = "0.3"
 heapless = "0.5"
 bare-metal = "1.0"
 stm32f4xx-hal = { version = "0.8", features = ["rt", "stm32f407"] }
-cortex-m-semihosting = "0.3"
+# cortex-m-semihosting = "0.3"
+cortex-m-semihosting = { version = "0.3", features = ["inline-asm"] }
 panic-semihosting = "0.5"
 cortex-m-rtic = "0.6.0-alpha.0"
 

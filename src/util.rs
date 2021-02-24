@@ -15,7 +15,7 @@ pub const fn convert_us_to_cycles(us: u32) -> u32 {
 }
 
 pub mod debugger {
-  use cortex_m_semihosting::hprint;
+  use cortex_m_semihosting::hprintln;
 
   static mut ENABLED: bool = false;
 
@@ -27,49 +27,47 @@ pub mod debugger {
     }
   }
 
-  pub fn print(s: &'static str, arg: Option<u32>) {
+  pub fn print(s: core::fmt::Arguments) {
     if unsafe { ENABLED } {
-      if arg.is_some() {
-        hprint!("{}{}", s, arg.unwrap()).unwrap();
-      } else {
-        hprint!("{}", s).unwrap();
-      }
+      hprintln!("{}", s).unwrap();
     }
   }
 }
 
-pub fn send_message(source: Task, dest: &Task, msg: app::Message) {
+pub fn send_message(source: Task, dest: &Task, msg: app::Message) -> Result<(), RticError> {
   match dest {
     Task::Lis3dsh => {
       lis_mb_app::spawn(MessagePacket {
         source,
         msg
-      }).unwrap();
+      }).map_err(|e| RticError::Spawn(e))?;
     }
     Task::Heartbeat => {
       heartbeat_mb_app::spawn(MessagePacket {
         source,
         msg
-      }).unwrap();
+      }).map_err(|e| RticError::Spawn(e))?;
     }
     Task::Button => {
       button_mb_app::spawn(MessagePacket {
         source,
         msg
-      }).unwrap();
+      }).map_err(|e| RticError::Spawn(e))?;
     }
     Task::Spi1 => {
       spi1_mb_app::spawn(MessagePacket {
         source,
         msg
-      }).unwrap();
+      }).map_err(|e| RticError::Spawn(e))?;
     }
     Task::Init => (),
     Task::Interrupt => (),
   }
+
+  Ok(())
 }
 
-pub fn schedule_message(source: Task, dest: &Task, msg: app::Message, micros_from_now: u32) {
+pub fn schedule_message(source: Task, dest: &Task, msg: app::Message, micros_from_now: u32) -> Result<(), RticError> {
   let sched_time = Instant::now() + convert_us_to_cycles(micros_from_now).cycles();
 
   match dest {
@@ -77,27 +75,35 @@ pub fn schedule_message(source: Task, dest: &Task, msg: app::Message, micros_fro
       lis_mb_app::schedule(sched_time, MessagePacket {
         source,
         msg
-      }).unwrap();
+      }).map_err(|e| RticError::Schedule(e))?;
     }
     Task::Heartbeat => {
       heartbeat_mb_app::schedule(sched_time, MessagePacket {
         source,
         msg
-      }).unwrap();
+      }).map_err(|e| RticError::Schedule(e))?;
     }
     Task::Button => {
       button_mb_app::schedule(sched_time, MessagePacket {
         source,
         msg
-      }).unwrap();
+      }).map_err(|e| RticError::Schedule(e))?;
     }
     Task::Spi1 => {
       spi1_mb_app::schedule(sched_time, MessagePacket {
         source,
         msg
-      }).unwrap();
+      }).map_err(|e| RticError::Schedule(e))?;
     }
     Task::Init => (),
     Task::Interrupt => (),
   }
+
+  Ok(())
+}
+
+#[derive(Debug)]
+pub enum RticError {
+  Spawn(app::MessagePacket),
+  Schedule(app::MessagePacket),
 }

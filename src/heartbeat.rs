@@ -59,7 +59,7 @@ pub fn heartbeat_mb(cx: heartbeat_mb_app::Context, msg: MessagePacket) {
             match heartbeat_app::schedule(Instant::now(), true) {
               Ok(_) => (),
               Err(_) => {
-                debugger::print("Heartbeat is already scheduled", None);
+                debugger::print(format_args!("Heartbeat is already scheduled"));
               }
             }
           }

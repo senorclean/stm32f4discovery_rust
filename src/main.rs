@@ -5,6 +5,8 @@
 
 #[allow(unused_extern_crates)]
 
+use rtic::cyccnt::{Instant, U32Ext};
+
 mod heartbeat;
 mod util;
 mod constants;
@@ -50,7 +52,7 @@ mod app {
   use panic_semihosting as _;
 
   #[resources]
-  struct Resources<'a> {
+  struct Resources {
     // led: gpiod::PD12<Output<PushPull>>,
     heartbeat: heartbeat::Data<TIM4, C2>,
     button: button::Data<gpioa::PA0<Input<Floating>>>,
@@ -63,7 +65,7 @@ mod app {
   fn init(cx: init::Context) -> init::LateResources {
 
     util::debugger::init();
-    util::debugger::print("Initializing", None);
+    util::debugger::print(format_args!("Initializing"));
 
     // device specific peripherals
     let device: stm32::Peripherals = cx.device;
@@ -123,15 +125,14 @@ mod app {
     let heartbeat = heartbeat::Data::new(heartbeat_led);
 
     // start tasks
-    heartbeat_mb_app::spawn( MessagePacket {
-      source: Task::Init,
-      msg: Message::Heartbeat(heartbeat::Message::TurnOn)
-    }).unwrap();
+    let msg = Message::Heartbeat(heartbeat::Message::TurnOn);
+    util::send_message(Task::Init, &Task::Heartbeat, msg).unwrap();
 
-    lis_mb_app::spawn(MessagePacket {
-      source: Task::Init,
-      msg: Message::Lis3dsh(lis3dsh::Message::Read(spi_drv::Read { reg: lis3dsh::ReadRegister::ID, len: 1 }))
-    }).unwrap();
+    let msg = Message::Lis3dsh(lis3dsh::Message::ChangeDataRate(lis3dsh::DataRate::OneHundredHertz));
+    util::send_message(Task::Init, &Task::Lis3dsh, msg).unwrap();
+
+    let msg = Message::Lis3dsh(lis3dsh::Message::ReadAxes);
+    util::schedule_message(Task::Init, &Task::Lis3dsh, msg, 1_000_000).unwrap();
 
     init::LateResources {
       // led,
@@ -170,39 +171,28 @@ mod app {
 
     (cx.resources.spi).lock(|spi| {
       if spi.spi.is_rxne() {
-        util::debugger::print("RX not empty event", None);
+        // util::debugger::print(format_args!("RX not empty event"));
         msg.msg = Message::Spi(spi_drv::Message::RxEvent);
         spi.spi.unlisten(spi::Event::Rxne);
-
       } else if spi.spi.is_txe() {
-        util::debugger::print("TX empty event", None);
+        // util::debugger::print(format_args!("TX empty event"));
         msg.msg = Message::Spi(spi_drv::Message::TxEvent);
       } else {
-        util::debugger::print("Unknown event received", None);
+        // util::debugger::print(format_args!("Unknown event received"));
       }
     });
 
     spi1_mb_app::spawn(msg).unwrap();
   }
 
-  #[task(priority = 2, resources = [lis])]
+  #[task(priority = 2, resources = [lis, spi], capacity = 4)]
   fn lis_mb_app(cx: lis_mb_app::Context, msg: MessagePacket) {
     lis3dsh::lis3dsh_mb(cx, msg);
   }
 
-  #[task(priority = 2, resources = [spi])]
-  fn lis_app(cx: lis_app::Context, msg: lis3dsh::Action) {
-    lis3dsh::lis3dsh(cx, msg);
-  }
-
-  #[task(priority = 2, resources = [spi])]
+  #[task(priority = 2, resources = [spi], capacity = 2)]
   fn spi1_mb_app(cx: spi1_mb_app::Context, msg: MessagePacket) {
     spi_drv::spi1::spi1_mb(cx, msg);
-  }
-
-  #[task(priority = 2, resources = [spi])]
-  fn spi1_app(cx: spi1_app::Context, msg: spi_drv::Action) {
-    spi_drv::spi1::spi1(cx, msg);
   }
 
   #[task(priority = 2, resources = [button])]
@@ -271,7 +261,7 @@ mod app {
   }
 }
 
-impl From<app::Task> for u32 {
+impl From<app::Task> for i32 {
   fn from(msg: app::Task) -> Self {
     match msg {
       app::Task::Init => 0,

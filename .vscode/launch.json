@@ -27,7 +27,7 @@
         "decoders": [
           {
             "port": 0,
-            "label": "Output",
+            "label": "ITM",
             "type": "console"
           }
         ]
@@ -37,16 +37,20 @@
     {
       "name": "OpenOCD",
       "cwd": "${workspaceRoot}",
-      "executable": "${workspaceFolder}/target/thumbv7em-none-eabihf/debug/stm32f4-rust",
+      "executable": "${workspaceFolder}/stm32f4-rust",
       "request": "launch",
       "type": "cortex-debug",
       "servertype": "openocd",
       "runToMain": true,
-      "configFiles": ["stm32f4discovery.cfg"],
-      "preLaunchCommands": [
+      "configFiles": [
+        // "interface/jlink.cfg",
+        // "target/stm32f4x.cfg"
+        "stm32f4.cfg"
+      ],
+      "postLaunchCommands": [
         "monitor arm semihosting enable"
       ],
-      "postLaunchCommands": ["continue"]
+      // "postLaunchCommands": ["continue"]
       //"svdFile": "${workspaceRoot}/../util/nrf52.svd"
     },
   ]
